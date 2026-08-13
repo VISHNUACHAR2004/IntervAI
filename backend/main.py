@@ -12,18 +12,22 @@ Design decisions (read this before you change anything):
   fails to parse, we retry once, then fail loudly (500) instead of
   silently returning garbage to the user.
 """
-from dotenv import load_dotenv;
+
 import os
 import json
+import time
 import logging
 from typing import List, Optional, Literal
+from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError
 from google import genai
+from google.genai.errors import ServerError, ClientError
 
 load_dotenv()
+print("DEBUG — GEMINI_MODEL from env:", os.environ.get("GEMINI_MODEL"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("intervai")
@@ -43,7 +47,15 @@ app.add_middleware(
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
-ROLES = Literal["Software Engineer", "ML Engineer", "Data Scientist", "Java Developer"]
+ROLES = Literal[
+    "Software Engineer", "ML Engineer", "Data Analyst", "Data Scientist",
+    "Java Developer", "Frontend Engineer", "Backend Engineer", "Fullstack Engineer",
+    "DevOps Engineer", "QA Engineer", "Product Manager", "Business Analyst",
+    "Project Manager", "System Administrator", "Network Engineer",
+    "Database Administrator", "Mobile App Developer", "Cloud Solutions Architect",
+    "Data Engineer", "Embedded Systems Engineer", "Solutions Architect",
+    "Business Development Executive",
+]
 DIFFICULTY = Literal["Easy", "Medium", "Hard"]
 
 
@@ -105,25 +117,55 @@ class FinalReport(BaseModel):
 
 # ---------- Helpers ----------
 
-def call_llm_json(system: str, user: str, retries: int = 1) -> dict:
-    """Call the LLM and force a JSON object back. Retries once on parse failure."""
+def call_llm_json(system: str, user: str, retries: int = 2) -> dict:
+    """Call the LLM and force a JSON object back.
+    Retries on: (a) transient 503/server-overload errors, with backoff,
+    and (b) malformed JSON. A 429 quota/rate-limit error is NOT retried —
+    if it's a daily quota cap, retrying in a few seconds is pointless and
+    just wastes time before failing anyway. Instead it fails fast with a
+    clear message the frontend can show directly to the user.
+    """
     last_err = None
     for attempt in range(retries + 1):
-        resp = client.models.generate_content(
-            model=MODEL,
-            contents=user,
-            config={
-                "system_instruction": system,
-                "response_mime_type": "application/json",  # forces valid JSON, unlike Claude's prompt-only approach
-            },
-        )
+        try:
+            resp = client.models.generate_content(
+                model=MODEL,
+                contents=user,
+                config={
+                    "system_instruction": system,
+                    "response_mime_type": "application/json",
+                },
+            )
+        except ClientError as e:
+            if getattr(e, "status_code", None) == 429 or "RESOURCE_EXHAUSTED" in str(e):
+                logger.error(f"Gemini quota/rate limit hit: {e}")
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        "The interview AI has hit its usage limit for now "
+                        "(free tier quota). Please try again later, or switch "
+                        "to a different model/API key."
+                    ),
+                )
+            raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
+        except ServerError as e:
+            last_err = e
+            wait = 1.5 * (attempt + 1)
+            logger.warning(f"Gemini server error (attempt {attempt+1}): {e}. Retrying in {wait}s.")
+            time.sleep(wait)
+            continue
+
         raw = resp.text.strip()
         try:
             return json.loads(raw)
         except json.JSONDecodeError as e:
             last_err = e
             logger.warning(f"LLM returned invalid JSON (attempt {attempt+1}): {raw[:300]}")
-    raise HTTPException(status_code=502, detail=f"LLM did not return valid JSON: {last_err}")
+
+    raise HTTPException(
+        status_code=503,
+        detail="The interview AI is temporarily unavailable. Please try again in a moment.",
+    )
 
 
 # ---------- Endpoints ----------
