@@ -191,10 +191,10 @@ function Letterhead() {
   return (
     <div className="mb-10">
       <div className="flex items-baseline justify-between">
-        <h1 className="font-display text-3xl tracking-tight text-parchment">
+        <h1 className="font-display text-6xl tracking-tight text-parchment">
           INTERV<span className="text-brass">AI</span>
         </h1>
-        <span className="font-mono text-[11px] tracking-[0.2em] text-muted uppercase">
+        <span className="font-mono text-[28px] tracking-[0.2em] text-muted uppercase">
           Candidate Assessment
         </span>
       </div>
@@ -208,7 +208,7 @@ function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, s
   return (
     <div className="space-y-8">
       <div>
-        <p className="font-mono text-xs tracking-widest text-muted uppercase mb-3">Position applied for</p>
+        <p className="font-mono text-xl tracking-widest text-muted uppercase mb-3">Position applied for</p>
         <div className="grid grid-cols-4 gap-5">
           {ROLES.map((r) => (
             <button
@@ -227,13 +227,13 @@ function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, s
       </div>
 
       <div>
-        <p className="font-mono text-xs tracking-widest text-muted uppercase mb-3">Difficulty</p>
+        <p className="font-mono text-xl tracking-widest text-muted uppercase mb-3">Difficulty</p>
         <div className="flex gap-2">
           {DIFFICULTIES.map((d) => (
             <button
               key={d}
               onClick={() => setDifficulty(d)}
-              className={`px-4 py-2 border text-sm transition-colors ${
+              className={`px-4 py-2 border text-xl transition-colors ${
                 difficulty === d
                   ? "border-brass bg-brass/10 text-parchment"
                   : "border-border bg-surface text-muted hover:border-brass/40 hover:text-parchment"
@@ -246,7 +246,7 @@ function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, s
       </div>
 
       <div>
-        <p className="font-mono text-xs tracking-widest text-muted uppercase mb-3">Number of questions</p>
+        <p className="font-mono text-xl tracking-widest text-muted uppercase mb-3">Number of questions</p>
         <div className="flex gap-2">
           {QUESTION_COUNTS.map((n) => (
             <button
