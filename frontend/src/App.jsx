@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import html2canvas from "html2canvas-pro";
 import jsPDF from "jspdf";
 
@@ -25,6 +25,38 @@ const ROLES = ["Software Engineer", "ML Engineer", "Data Analyst", "Data Scienti
     "Business Development Executive"];
 const DIFFICULTIES = ["Easy", "Medium", "Hard"];
 const QUESTION_COUNTS = [5, 10, 15];
+const QUESTION_TIME_SECONDS = 180; // 3 minutes per question
+const HISTORY_KEY = "intervai_history";
+
+// --- localStorage helpers, kept plain functions (not tied to component
+// lifecycle) since they're just reading/writing a JSON blob under one key ---
+function loadHistoryList() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.error("Failed to read interview history:", e);
+    return [];
+  }
+}
+
+function saveInterviewRecord(record) {
+  try {
+    const list = loadHistoryList();
+    list.unshift(record); // newest first
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.error("Failed to save interview history:", e);
+  }
+}
+
+function clearHistory() {
+  try {
+    localStorage.removeItem(HISTORY_KEY);
+  } catch (e) {
+    console.error("Failed to clear interview history:", e);
+  }
+}
 
 export default function App() {
   const [screen, setScreen] = useState("setup");
@@ -43,7 +75,34 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME_SECONDS);
+  const [historyList, setHistoryList] = useState([]);
+  const [viewedHistoryReport, setViewedHistoryReport] = useState(null);
+
   const questionNumber = history.length + 1;
+
+  // Reset the timer whenever a new question appears
+  useEffect(() => {
+    if (screen === "interview") setTimeLeft(QUESTION_TIME_SECONDS);
+  }, [currentQuestion, screen]);
+
+  // Countdown tick. Pauses while a network call is in flight (loading) so
+  // the clock doesn't run out from under a request that's already been sent.
+  useEffect(() => {
+    if (screen !== "interview" || loading) return;
+    if (timeLeft <= 0) {
+      handleTimeout();
+      return;
+    }
+    const id = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, loading, timeLeft]);
+
+  function handleTimeout() {
+    if (loading) return;
+    submitAnswer({ timedOut: true });
+  }
 
   async function startInterview() {
     setLoading(true);
@@ -71,8 +130,11 @@ export default function App() {
     }
   }
 
-  async function submitAnswer() {
-    if (!answer.trim()) return;
+  async function submitAnswer(opts = {}) {
+    const timedOut = opts.timedOut === true;
+    const answerToSubmit = answer.trim() || (timedOut ? "(No answer submitted — time expired.)" : "");
+    if (!timedOut && !answerToSubmit.trim()) return;
+
     setLoading(true);
     setError(null);
     try {
@@ -85,8 +147,9 @@ export default function App() {
           num_questions: numQuestions,
           history,
           current_question: currentQuestion,
-          current_answer: answer,
+          current_answer: answerToSubmit,
           is_code_answer: isCodeAnswer,
+          timed_out: timedOut,
         }),
       });
       if (!res.ok) {
@@ -95,7 +158,7 @@ export default function App() {
       }
       const data = await res.json();
 
-      const newHistory = [...history, { question: currentQuestion, answer }];
+      const newHistory = [...history, { question: currentQuestion, answer: answerToSubmit }];
       const newScores = [...perQuestionScores, data.score];
       setHistory(newHistory);
       setPerQuestionScores(newScores);
@@ -133,6 +196,13 @@ export default function App() {
       }
       const data = await res.json();
       setReport(data);
+      saveInterviewRecord({
+        id: `${Date.now()}`,
+        role,
+        difficulty,
+        date: new Date().toISOString(),
+        report: data,
+      });
       setScreen("report");
     } catch (e) {
       setError(e.message);
@@ -147,6 +217,22 @@ export default function App() {
     setLastFeedback(null);
     setAnswer("");
     setError(null);
+  }
+
+  function openHistory() {
+    setHistoryList(loadHistoryList());
+    setViewedHistoryReport(null);
+    setScreen("history");
+  }
+
+  function viewHistoryEntry(entry) {
+    setViewedHistoryReport(entry.report);
+    setScreen("historyReport");
+  }
+
+  function handleClearHistory() {
+    clearHistory();
+    setHistoryList([]);
   }
 
   return (
@@ -167,6 +253,7 @@ export default function App() {
             numQuestions={numQuestions} setNumQuestions={setNumQuestions}
             loading={loading}
             onStart={startInterview}
+            onViewHistory={openHistory}
           />
         )}
 
@@ -180,14 +267,32 @@ export default function App() {
             setAnswer={setAnswer}
             isCodeAnswer={isCodeAnswer}
             setIsCodeAnswer={setIsCodeAnswer}
+            timeLeft={timeLeft}
             loading={loading}
             lastFeedback={lastFeedback}
-            onSubmit={submitAnswer}
+            onSubmit={() => submitAnswer()}
           />
         )}
 
         {screen === "report" && report && (
           <ReportScreen report={report} onRestart={resetToSetup} />
+        )}
+
+        {screen === "history" && (
+          <HistoryScreen
+            entries={historyList}
+            onView={viewHistoryEntry}
+            onClear={handleClearHistory}
+            onBack={() => setScreen("setup")}
+          />
+        )}
+
+        {screen === "historyReport" && viewedHistoryReport && (
+          <ReportScreen
+            report={viewedHistoryReport}
+            onRestart={() => setScreen("history")}
+            restartLabel="Back to History"
+          />
         )}
       </div>
     </div>
@@ -211,9 +316,18 @@ function Letterhead() {
   );
 }
 
-function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, setNumQuestions, loading, onStart }) {
+function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, setNumQuestions, loading, onStart, onViewHistory }) {
   return (
     <div className="space-y-8">
+      <div className="flex justify-end">
+        <button
+          onClick={onViewHistory}
+          className="font-mono text-sm tracking-widest text-muted hover:text-brass uppercase transition-colors"
+        >
+          View Past Interviews →
+        </button>
+      </div>
+
       <div>
         <p className="font-mono text-xl tracking-widest text-muted uppercase mb-3">Position applied for</p>
         <div className="grid grid-cols-4 gap-5">
@@ -282,21 +396,33 @@ function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, s
   );
 }
 
-function InterviewScreen({ role, questionNumber, numQuestions, question, answer, setAnswer, isCodeAnswer, setIsCodeAnswer, loading, lastFeedback, onSubmit }) {
+function InterviewScreen({ role, questionNumber, numQuestions, question, answer, setAnswer, isCodeAnswer, setIsCodeAnswer, timeLeft, loading, lastFeedback, onSubmit }) {
   const padded = String(questionNumber).padStart(2, "0");
   const total = String(numQuestions).padStart(2, "0");
+  const mins = String(Math.floor(timeLeft / 60)).padStart(2, "0");
+  const secs = String(timeLeft % 60).padStart(2, "0");
+  const timeLow = timeLeft <= 30;
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <span className="font-mono text-xs tracking-widest text-muted uppercase">{role}</span>
-        <span className="font-mono text-xs border border-brass/50 text-brass px-2 py-1 tracking-widest">
-          FILE {padded}/{total}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className={`font-mono text-xs border px-2 py-1 tracking-widest ${
+              timeLow ? "border-rust text-rust" : "border-brass/50 text-brass"
+            }`}
+          >
+            {mins}:{secs}
+          </span>
+          <span className="font-mono text-xs border border-brass/50 text-brass px-2 py-1 tracking-widest">
+            FILE {padded}/{total}
+          </span>
+        </div>
       </div>
 
       <div className="border border-border bg-surface p-5">
-        <p className="font-mono text-[31px] tracking-widest text-brass uppercase mb-3">Interviewer asks</p>
+        <p className="font-mono text-[11px] tracking-widest text-brass uppercase mb-3">Interviewer asks</p>
         <p className="font-display text-xl leading-snug text-parchment">{question}</p>
       </div>
 
@@ -340,7 +466,7 @@ function InterviewScreen({ role, questionNumber, numQuestions, question, answer,
   );
 }
 
-function ReportScreen({ report, onRestart }) {
+function ReportScreen({ report, onRestart, restartLabel = "Take Another Interview" }) {
   const reportRef = useRef(null);
   const [exporting, setExporting] = useState(false);
 
@@ -389,7 +515,7 @@ function ReportScreen({ report, onRestart }) {
     <div className="space-y-8">
       <div ref={reportRef} className="bg-ink space-y-8 p-2">
         <div className="text-center border-b border-brass/30 pb-6">
-          <p className="font-mono text-xs tracking-widest text-muted uppercase mb-2">Assessment Complete</p>
+          <p className="font-mono text-xl tracking-widest text-muted uppercase mb-2">Assessment Complete</p>
           <p className="font-display text-6xl text-parchment">
             {report.overall_score}<span className="text-2xl text-muted">/100</span>
           </p>
@@ -455,8 +581,57 @@ function ReportScreen({ report, onRestart }) {
         onClick={onRestart}
         className="w-full py-3 border border-brass bg-brass/10 hover:bg-brass/20 text-parchment font-display text-lg tracking-wide transition-colors"
       >
-        Take Another Interview
+        {restartLabel}
       </button>
+    </div>
+  );
+}
+
+function HistoryScreen({ entries, onView, onClear, onBack }) {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-xs tracking-widest text-muted uppercase">Past Interviews</p>
+        <button
+          onClick={onBack}
+          className="font-mono text-xs tracking-widest text-muted hover:text-brass uppercase transition-colors"
+        >
+          ← Back
+        </button>
+      </div>
+
+      {entries.length === 0 ? (
+        <p className="text-sm text-muted">No interviews recorded yet on this device.</p>
+      ) : (
+        <div className="space-y-2">
+          {entries.map((entry) => {
+            const d = new Date(entry.date);
+            const dateLabel = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+            return (
+              <button
+                key={entry.id}
+                onClick={() => onView(entry)}
+                className="w-full flex items-center justify-between px-4 py-3 border border-border bg-surface hover:border-brass/40 text-left transition-colors"
+              >
+                <div>
+                  <p className="text-sm text-parchment">{entry.role}</p>
+                  <p className="font-mono text-xs text-muted">{entry.difficulty} · {dateLabel}</p>
+                </div>
+                <p className="font-display text-2xl text-brass">{entry.report.overall_score}</p>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {entries.length > 0 && (
+        <button
+          onClick={onClear}
+          className="w-full py-2 border border-rust/40 text-rust hover:bg-rust/10 font-mono text-xs tracking-widest uppercase transition-colors"
+        >
+          Clear History
+        </button>
+      )}
     </div>
   );
 }

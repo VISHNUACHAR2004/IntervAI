@@ -85,6 +85,7 @@ class EvaluateRequest(BaseModel):
     current_question: str
     current_answer: str
     is_code_answer: bool = False   # true if the candidate submitted code, not prose
+    timed_out: bool = False        # true if the answer was auto-submitted when the timer hit zero
 
 
 class EvaluateResponse(BaseModel):
@@ -241,11 +242,23 @@ def evaluate(req: EvaluateRequest):
         "- If this was the LAST question of the interview, set next_question "
         "to null."
     )
+    timeout_note = (
+        "\nNOTE: The candidate ran out of time on this question — this answer "
+        "was auto-submitted when the clock hit zero, not submitted voluntarily. "
+        "Evaluate whatever content is present fairly on its own merits, but do "
+        "not treat an incomplete/short answer here the same as a candidate who "
+        "had unlimited time and still gave a weak answer. Mention the time "
+        "pressure in feedback if relevant, and keep missing_points focused on "
+        "what was actually said rather than assuming the worst about what "
+        "wasn't reached.\n"
+        if req.timed_out else ""
+    )
     user = (
         f"Role: {req.role}\n"
         f"Difficulty: {req.difficulty}\n"
         f"Question {q_number} of {req.num_questions} (this is "
-        f"{'the FINAL question' if is_last else 'not the final question'}).\n\n"
+        f"{'the FINAL question' if is_last else 'not the final question'}).\n"
+        f"{timeout_note}\n"
         f"Previous Q&A history:\n{history_text}\n\n"
         f"Current question: {req.current_question}\n"
         f"Candidate's answer: {req.current_answer}\n\n"
