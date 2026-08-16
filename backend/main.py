@@ -20,11 +20,14 @@ import logging
 from typing import List, Optional, Literal
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError
 from google import genai
 from google.genai.errors import ServerError, ClientError
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 load_dotenv()
 print("DEBUG — GEMINI_MODEL from env:", os.environ.get("GEMINI_MODEL"))
@@ -33,6 +36,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("intervai")
 
 app = FastAPI(title="INTERVAI API")
+
+# Rate limiting: protects your Gemini quota from accidental hammering
+# (double-clicks, buggy retries, someone leaving a tab open with a script).
+# This is NOT abuse protection against a determined attacker — it's a
+# sanity limit for a single-user dev app. Tune the numbers if they're too
+# tight/loose for how you actually use it.
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # In dev, allow the Vite/CRA dev server. Lock this down before deploying.
 app.add_middleware(
@@ -173,7 +185,8 @@ def call_llm_json(system: str, user: str, retries: int = 2) -> dict:
 # ---------- Endpoints ----------
 
 @app.post("/start-interview", response_model=StartInterviewResponse)
-def start_interview(req: StartInterviewRequest):
+@limiter.limit("10/minute")
+def start_interview(request: Request, req: StartInterviewRequest):
     system = (
         "You are a senior technical interviewer conducting a real interview. "
         "Respond with ONLY a JSON object, no markdown, no preamble. "
@@ -194,7 +207,8 @@ def start_interview(req: StartInterviewRequest):
 
 
 @app.post("/evaluate", response_model=EvaluateResponse)
-def evaluate(req: EvaluateRequest):
+@limiter.limit("15/minute")
+def evaluate(request: Request, req: EvaluateRequest):
     q_number = len(req.history) + 1
     is_last = q_number >= req.num_questions
 
@@ -283,7 +297,8 @@ def evaluate(req: EvaluateRequest):
 
 
 @app.post("/final-report", response_model=FinalReport)
-def final_report(req: FinalReportRequest):
+@limiter.limit("5/minute")
+def final_report(request: Request, req: FinalReportRequest):
     history_text = "\n\n".join(
         f"Q{i+1}: {qa.question}\nA{i+1}: {qa.answer}" for i, qa in enumerate(req.history)
     )

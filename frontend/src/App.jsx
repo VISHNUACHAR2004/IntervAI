@@ -132,8 +132,12 @@ export default function App() {
 
   async function submitAnswer(opts = {}) {
     const timedOut = opts.timedOut === true;
-    const answerToSubmit = answer.trim() || (timedOut ? "(No answer submitted — time expired.)" : "");
-    if (!timedOut && !answerToSubmit.trim()) return;
+    const hasContent = answer.trim().length > 0;
+    const answerToSubmit = hasContent ? answer.trim() : (timedOut ? "(No answer submitted — time expired.)" : "");
+    if (!timedOut && !hasContent) return;
+    // Don't claim "code answer" evaluation for a placeholder sentence that
+    // isn't code — only apply it when there's actually typed content.
+    const effectiveIsCodeAnswer = isCodeAnswer && hasContent;
 
     setLoading(true);
     setError(null);
@@ -148,7 +152,7 @@ export default function App() {
           history,
           current_question: currentQuestion,
           current_answer: answerToSubmit,
-          is_code_answer: isCodeAnswer,
+          is_code_answer: effectiveIsCodeAnswer,
           timed_out: timedOut,
         }),
       });
@@ -322,7 +326,7 @@ function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, s
       <div className="flex justify-end">
         <button
           onClick={onViewHistory}
-          className="font-mono text-sm tracking-widest text-muted hover:text-brass uppercase transition-colors"
+          className="font-mono text-xs tracking-widest text-muted hover:text-brass uppercase transition-colors"
         >
           View Past Interviews →
         </button>
@@ -515,7 +519,7 @@ function ReportScreen({ report, onRestart, restartLabel = "Take Another Intervie
     <div className="space-y-8">
       <div ref={reportRef} className="bg-ink space-y-8 p-2">
         <div className="text-center border-b border-brass/30 pb-6">
-          <p className="font-mono text-xl tracking-widest text-muted uppercase mb-2">Assessment Complete</p>
+          <p className="font-mono text-xs tracking-widest text-muted uppercase mb-2">Assessment Complete</p>
           <p className="font-display text-6xl text-parchment">
             {report.overall_score}<span className="text-2xl text-muted">/100</span>
           </p>
