@@ -328,17 +328,20 @@ function ReportScreen({ report, onRestart }) {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-px bg-border border border-border">
+
+
+      <div className="grid grid-cols-2 grid-rows-2 gap-px text-xl bg-border border border-border text-parchment">
         <Metric label="Technical Knowledge" value={report.technical_knowledge_pct} />
         <Metric label="Communication" value={report.communication_pct} />
         <Metric label="Completeness" value={report.completeness_pct} />
         <Metric label="Problem Solving" value={report.problem_solving_pct} />
       </div>
+      
 
       <div className="grid grid-cols-1 gap-6">
         <div>
-          <p className="font-mono text-xs tracking-widest text-olive uppercase mb-2">Strengths</p>
-          <ul className="space-y-1.5 text-sm text-parchment/90">
+          <p className="font-mono text-xl tracking-widest text-olive uppercase mb-2">Strengths</p>
+          <ul className="space-y-1.5 text-xl text-parchment/90">
             {report.strengths.map((s, i) => (
               <li key={i} className="flex gap-2"><span className="text-olive">+</span>{s}</li>
             ))}
@@ -346,8 +349,8 @@ function ReportScreen({ report, onRestart }) {
         </div>
 
         <div>
-          <p className="font-mono text-xs tracking-widest text-rust uppercase mb-2">Weaknesses</p>
-          <ul className="space-y-1.5 text-sm text-parchment/90">
+          <p className="font-mono text-xl tracking-widest text-rust uppercase mb-2">Weaknesses</p>
+          <ul className="space-y-1.5 text-xl text-parchment/90">
             {report.weaknesses.map((w, i) => (
               <li key={i} className="flex gap-2"><span className="text-rust">−</span>{w}</li>
             ))}
@@ -355,8 +358,8 @@ function ReportScreen({ report, onRestart }) {
         </div>
 
         <div>
-          <p className="font-mono text-xs tracking-widest text-brass uppercase mb-2">Recommended Study Topics</p>
-          <ol className="space-y-1.5 text-sm text-parchment/90">
+          <p className="font-mono text-xl tracking-widest text-brass uppercase mb-2">Recommended Study Topics</p>
+          <ol className="space-y-1.5 text-xl text-parchment/90">
             {report.recommended_topics.map((t, i) => (
               <li key={i} className="flex gap-3">
                 <span className="font-mono text-brass">{String(i + 1).padStart(2, "0")}</span>{t}
@@ -379,8 +382,8 @@ function ReportScreen({ report, onRestart }) {
 function Metric({ label, value }) {
   return (
     <div className="bg-surface p-4">
-      <p className="font-mono text-[10px] tracking-widest text-muted uppercase mb-1">{label}</p>
-      <p className="font-display text-2xl text-parchment">{value}<span className="text-sm text-muted">%</span></p>
+      <p className="font-mono text-[30px] tracking-widest text-muted uppercase mb-1">{label}</p>
+      <p className="font-display text-5xl text-parchment">{value}<span className="text-sm text-muted">%</span></p>
     </div>
   );
 }
