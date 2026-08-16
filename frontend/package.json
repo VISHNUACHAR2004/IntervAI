@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "html2canvas-pro": "^2.3.8",
+    "jspdf": "^4.2.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

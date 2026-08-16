@@ -84,6 +84,7 @@ class EvaluateRequest(BaseModel):
     history: List[QAPair]          # all Q&A pairs BEFORE this one
     current_question: str
     current_answer: str
+    is_code_answer: bool = False   # true if the candidate submitted code, not prose
 
 
 class EvaluateResponse(BaseModel):
@@ -200,6 +201,22 @@ def evaluate(req: EvaluateRequest):
         f"Q{i+1}: {qa.question}\nA{i+1}: {qa.answer}" for i, qa in enumerate(req.history)
     ) or "(none yet)"
 
+    if req.is_code_answer:
+        eval_criteria = (
+            "The candidate submitted CODE, not prose. Evaluate it like a senior "
+            "engineer doing code review:\n"
+            "- technical_accuracy: does the code actually work / solve the problem correctly?\n"
+            "- clarity: is the code readable (naming, structure), not the prose fluency?\n"
+            "- completeness: are edge cases, error handling, and complexity considered?\n"
+            "missing_points should list specific missing edge cases, bugs, or "
+            "inefficiencies (e.g. 'doesn't handle empty input', 'O(n^2) when O(n) is possible')."
+        )
+    else:
+        eval_criteria = (
+            "The candidate submitted a spoken/written explanation. Evaluate technical "
+            "accuracy, clarity of communication, and completeness of the explanation."
+        )
+
     system = (
         "You are a senior technical interviewer conducting a live, adaptive "
         "interview. You evaluate the candidate's last answer AND decide the "
@@ -214,6 +231,7 @@ def evaluate(req: EvaluateRequest):
         '  "missing_points": [string],\n'
         '  "next_question": string or null\n'
         "}\n\n"
+        f"{eval_criteria}\n\n"
         "Rules for next_question:\n"
         "- If the answer was strong, ask a harder or deeper follow-up that "
         "builds on something specific the candidate said.\n"
