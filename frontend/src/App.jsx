@@ -16,7 +16,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
  * - No routing library, no auth, no DB. Still v1 scope.
  */
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://intervai-kk85.onrender.com";
 const ROLES = ["Software Engineer", "ML Engineer", "Data Analyst", "Data Scientist",
     "Java Developer", "Frontend Engineer", "Backend Engineer", "Fullstack Engineer",
     "DevOps Engineer", "QA Engineer", "Product Manager", "Business Analyst",
