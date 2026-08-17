@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import html2canvas from "html2canvas-pro";
 import jsPDF from "jspdf";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 /**
  * INTERVAI frontend — v1 (styled)
@@ -25,7 +26,8 @@ const ROLES = ["Software Engineer", "ML Engineer", "Data Analyst", "Data Scienti
     "Business Development Executive"];
 const DIFFICULTIES = ["Easy", "Medium", "Hard"];
 const QUESTION_COUNTS = [5, 10, 15];
-const QUESTION_TIME_SECONDS = 180; // 3 minutes per question
+const QUESTION_TIME_BY_DIFFICULTY = { Easy: 180, Medium: 300, Hard: 420 }; // 3 / 5 / 7 min
+const CODE_QUESTION_BONUS_SECONDS = 180; // extra time granted automatically when the SERVER says this question needs code
 const HISTORY_KEY = "intervai_history";
 
 // --- localStorage helpers, kept plain functions (not tied to component
@@ -67,24 +69,32 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [perQuestionScores, setPerQuestionScores] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState("");
+  const [questionRequiresCode, setQuestionRequiresCode] = useState(false); // server-determined, not self-reported — see design note below
   const [answer, setAnswer] = useState("");
-  const [isCodeAnswer, setIsCodeAnswer] = useState(false);
   const [lastFeedback, setLastFeedback] = useState(null);
 
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME_SECONDS);
+  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME_BY_DIFFICULTY.Medium);
   const [historyList, setHistoryList] = useState([]);
   const [viewedHistoryReport, setViewedHistoryReport] = useState(null);
 
   const questionNumber = history.length + 1;
 
-  // Reset the timer whenever a new question appears
+  // Reset the timer whenever a new question appears, scaled to difficulty
+  // plus a bonus if THIS SPECIFIC QUESTION requires code. Note: questionRequiresCode
+  // is set by the backend (the interviewer's own judgment about the question
+  // it just asked), never by the candidate — a self-reported "this needs
+  // code" checkbox is directly gameable for free bonus time, so that
+  // control was removed entirely rather than patched.
   useEffect(() => {
-    if (screen === "interview") setTimeLeft(QUESTION_TIME_SECONDS);
-  }, [currentQuestion, screen]);
+    if (screen === "interview") {
+      const base = QUESTION_TIME_BY_DIFFICULTY[difficulty] ?? 180;
+      setTimeLeft(questionRequiresCode ? base + CODE_QUESTION_BONUS_SECONDS : base);
+    }
+  }, [currentQuestion, screen, difficulty, questionRequiresCode]);
 
   // Countdown tick. Pauses while a network call is in flight (loading) so
   // the clock doesn't run out from under a request that's already been sent.
@@ -119,6 +129,7 @@ export default function App() {
       }
       const data = await res.json();
       setCurrentQuestion(data.question);
+      setQuestionRequiresCode(Boolean(data.requires_code));
       setHistory([]);
       setPerQuestionScores([]);
       setLastFeedback(null);
@@ -135,9 +146,10 @@ export default function App() {
     const hasContent = answer.trim().length > 0;
     const answerToSubmit = hasContent ? answer.trim() : (timedOut ? "(No answer submitted — time expired.)" : "");
     if (!timedOut && !hasContent) return;
-    // Don't claim "code answer" evaluation for a placeholder sentence that
-    // isn't code — only apply it when there's actually typed content.
-    const effectiveIsCodeAnswer = isCodeAnswer && hasContent;
+    // is_code_answer reflects whether THIS question genuinely required code
+    // (server-determined when the question was generated), not a user
+    // toggle — nothing for the candidate to game here.
+    const effectiveIsCodeAnswer = questionRequiresCode && hasContent;
 
     setLoading(true);
     setError(null);
@@ -168,12 +180,12 @@ export default function App() {
       setPerQuestionScores(newScores);
       setLastFeedback(data);
       setAnswer("");
-      setIsCodeAnswer(false);
 
       if (data.is_final || !data.next_question) {
         await fetchFinalReport(newHistory, newScores);
       } else {
         setCurrentQuestion(data.next_question);
+        setQuestionRequiresCode(Boolean(data.next_question_requires_code));
       }
     } catch (e) {
       setError(e.message);
@@ -267,10 +279,9 @@ export default function App() {
             questionNumber={Math.min(questionNumber, numQuestions)}
             numQuestions={numQuestions}
             question={currentQuestion}
+            questionRequiresCode={questionRequiresCode}
             answer={answer}
             setAnswer={setAnswer}
-            isCodeAnswer={isCodeAnswer}
-            setIsCodeAnswer={setIsCodeAnswer}
             timeLeft={timeLeft}
             loading={loading}
             lastFeedback={lastFeedback}
@@ -400,7 +411,7 @@ function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, s
   );
 }
 
-function InterviewScreen({ role, questionNumber, numQuestions, question, answer, setAnswer, isCodeAnswer, setIsCodeAnswer, timeLeft, loading, lastFeedback, onSubmit }) {
+function InterviewScreen({ role, questionNumber, numQuestions, question, questionRequiresCode, answer, setAnswer, timeLeft, loading, lastFeedback, onSubmit }) {
   const padded = String(questionNumber).padStart(2, "0");
   const total = String(numQuestions).padStart(2, "0");
   const mins = String(Math.floor(timeLeft / 60)).padStart(2, "0");
@@ -426,7 +437,14 @@ function InterviewScreen({ role, questionNumber, numQuestions, question, answer,
       </div>
 
       <div className="border border-border bg-surface p-5">
-        <p className="font-mono text-[11px] tracking-widest text-brass uppercase mb-3">Interviewer asks</p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="font-mono text-[11px] tracking-widest text-brass uppercase">Interviewer asks</p>
+          {questionRequiresCode && (
+            <span className="font-mono text-[10px] tracking-widest text-muted border border-border px-2 py-0.5 uppercase">
+              Code expected · +{Math.round(CODE_QUESTION_BONUS_SECONDS / 60)} min
+            </span>
+          )}
+        </div>
         <p className="font-display text-xl leading-snug text-parchment">{question}</p>
       </div>
 
@@ -436,26 +454,14 @@ function InterviewScreen({ role, questionNumber, numQuestions, question, answer,
         </div>
       )}
 
-      <label className="flex items-center gap-2 cursor-pointer w-fit">
-        <input
-          type="checkbox"
-          checked={isCodeAnswer}
-          onChange={(e) => setIsCodeAnswer(e.target.checked)}
-          className="accent-brass w-4 h-4"
-        />
-        <span className="font-mono text-xs tracking-widest text-muted uppercase">
-          This is a code answer
-        </span>
-      </label>
-
       <textarea
         value={answer}
         onChange={(e) => setAnswer(e.target.value)}
         rows={8}
-        placeholder={isCodeAnswer ? "// Paste or write your code here…" : "Compose your response…"}
-        spellCheck={!isCodeAnswer}
+        placeholder={questionRequiresCode ? "// Write your code here…" : "Compose your response…"}
+        spellCheck={!questionRequiresCode}
         className={`w-full p-4 bg-surface border border-border text-parchment placeholder-muted/60 focus:outline-none focus:border-brass resize-none ${
-          isCodeAnswer ? "font-mono text-sm" : "font-body"
+          questionRequiresCode ? "font-mono text-sm" : "font-body"
         }`}
       />
 
@@ -592,6 +598,16 @@ function ReportScreen({ report, onRestart, restartLabel = "Take Another Intervie
 }
 
 function HistoryScreen({ entries, onView, onClear, onBack }) {
+  // entries is newest-first (how it's stored); a trend chart reads more
+  // naturally oldest-to-newest, so reverse just for the chart data.
+  const chartData = [...entries]
+    .reverse()
+    .map((entry, i) => ({
+      label: `#${i + 1}`,
+      score: entry.report.overall_score,
+      role: entry.role,
+    }));
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -603,6 +619,25 @@ function HistoryScreen({ entries, onView, onClear, onBack }) {
           ← Back
         </button>
       </div>
+
+      {entries.length >= 2 && (
+        <div className="border border-border bg-surface p-4">
+          <p className="font-mono text-[31px] tracking-widest text-brass uppercase mb-3">Score Trend</p>
+          <ResponsiveContainer width="100%" height={350}>
+            <LineChart data={chartData} margin={{ top: 10, right: 40, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="#3A3327" strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="label" stroke="#9C9284" tick={{ fontSize: 31 }} />
+              <YAxis domain={[0, 100]} stroke="#9C9284" tick={{ fontSize: 21 }} />
+              <Tooltip
+                contentStyle={{ background: "#1E1A14", border: "1px solid #3A3327", fontSize: 25 }}
+                labelStyle={{ color: "#9C9284" }}
+                formatter={(value, _name, props) => [`${value}/100`, props.payload.role]}
+              />
+              <Line type="monotone" dataKey="score" stroke="#C6A15B" strokeWidth={2} dot={{ r: 3, fill: "#C6A15B" }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
       {entries.length === 0 ? (
         <p className="text-sm text-muted">No interviews recorded yet on this device.</p>

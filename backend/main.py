@@ -87,6 +87,7 @@ class StartInterviewRequest(BaseModel):
 class StartInterviewResponse(BaseModel):
     question: str
     question_number: int = 1
+    requires_code: bool = False   # true if a real answer needs actual code, not prose
 
 
 class EvaluateRequest(BaseModel):
@@ -96,7 +97,7 @@ class EvaluateRequest(BaseModel):
     history: List[QAPair]          # all Q&A pairs BEFORE this one
     current_question: str
     current_answer: str
-    is_code_answer: bool = False   # true if the candidate submitted code, not prose
+    is_code_answer: bool = False   # true if the CURRENT question required code (server-determined, not self-reported)
     timed_out: bool = False        # true if the answer was auto-submitted when the timer hit zero
 
 
@@ -108,6 +109,7 @@ class EvaluateResponse(BaseModel):
     feedback: str
     missing_points: List[str]
     next_question: Optional[str] = None   # None if interview is over
+    next_question_requires_code: bool = False
     is_final: bool
 
 
@@ -190,7 +192,18 @@ def start_interview(request: Request, req: StartInterviewRequest):
     system = (
         "You are a senior technical interviewer conducting a real interview. "
         "Respond with ONLY a JSON object, no markdown, no preamble. "
-        'Schema: {"question": string}'
+        "Schema:\n"
+        "{\n"
+        '  "question": string,\n'
+        '  "requires_code": bool\n'
+        "}\n\n"
+        "requires_code is true ONLY if genuinely answering this question well "
+        "requires writing actual code (e.g. implementing a function or "
+        "algorithm), not just describing an approach verbally. For "
+        "non-engineering roles (Product Manager, Business Analyst, Project "
+        "Manager, System Administrator, Network Engineer, Business "
+        "Development Executive, etc.) this should almost always be false — "
+        "do not ask coding questions for roles that don't call for them."
     )
     user = (
         f"Role: {req.role}\n"
@@ -203,7 +216,11 @@ def start_interview(request: Request, req: StartInterviewRequest):
     data = call_llm_json(system, user)
     if "question" not in data:
         raise HTTPException(status_code=502, detail="LLM response missing 'question'")
-    return StartInterviewResponse(question=data["question"], question_number=1)
+    return StartInterviewResponse(
+        question=data["question"],
+        question_number=1,
+        requires_code=bool(data.get("requires_code", False)),
+    )
 
 
 @app.post("/evaluate", response_model=EvaluateResponse)
@@ -244,7 +261,8 @@ def evaluate(request: Request, req: EvaluateRequest):
         '  "completeness": int (0-10),\n'
         '  "feedback": string (2-3 sentences, specific, direct),\n'
         '  "missing_points": [string],\n'
-        '  "next_question": string or null\n'
+        '  "next_question": string or null,\n'
+        '  "next_question_requires_code": bool\n'
         "}\n\n"
         f"{eval_criteria}\n\n"
         "Rules for next_question:\n"
@@ -254,7 +272,12 @@ def evaluate(request: Request, req: EvaluateRequest):
         "pushes for the missing piece rather than moving to an unrelated topic.\n"
         "- If the answer was incomplete, ask a clarification question.\n"
         "- If this was the LAST question of the interview, set next_question "
-        "to null."
+        "to null and next_question_requires_code to false.\n\n"
+        "next_question_requires_code is true ONLY if genuinely answering the "
+        "next question well requires writing actual code, not just describing "
+        "an approach verbally. Be honest about this — it directly affects how "
+        "much time the candidate is given, so don't mark it true unless code "
+        "is genuinely the right way to answer."
     )
     timeout_note = (
         "\nNOTE: The candidate ran out of time on this question — this answer "
@@ -289,6 +312,7 @@ def evaluate(request: Request, req: EvaluateRequest):
             feedback=data["feedback"],
             missing_points=data.get("missing_points", []),
             next_question=None if is_last else data.get("next_question"),
+            next_question_requires_code=False if is_last else bool(data.get("next_question_requires_code", False)),
             is_final=is_last,
         )
     except (KeyError, ValidationError) as e:
