@@ -254,7 +254,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-ink text-parchment font-body flex items-start justify-center p-6">
+    <div className="min-h-screen bg-ink text-parchment font-body flex items-start justify-center p-4 sm:p-6">
       <div className="w-full max-w-2xl">
         <Letterhead />
 
@@ -318,12 +318,12 @@ export default function App() {
 
 function Letterhead() {
   return (
-    <div className="mb-10">
-      <div className="flex items-baseline justify-between">
-        <h1 className="font-display text-3xl tracking-tight text-parchment">
+    <div className="mb-8 sm:mb-10">
+      <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 sm:gap-0">
+        <h1 className="font-display text-2xl sm:text-3xl md:text-4xl tracking-tight text-parchment">
           INTERV<span className="text-brass">AI</span>
         </h1>
-        <span className="font-mono text-[20px] tracking-[0.2em] text-muted uppercase">
+        <span className="font-mono text-[10px] sm:text-xs tracking-[0.2em] text-muted uppercase">
           Candidate Assessment
         </span>
       </div>
@@ -347,12 +347,12 @@ function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, s
 
       <div>
         <p className="font-mono text-xs tracking-widest text-muted uppercase mb-3">Position applied for</p>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {ROLES.map((r) => (
             <button
               key={r}
               onClick={() => setRole(r)}
-              className={`px-4 py-3 border text-left text-xs transition-colors ${
+              className={`px-4 py-3 border text-left text-sm sm:text-xs transition-colors ${
                 role === r
                   ? "border-brass bg-brass/10 text-parchment"
                   : "border-border bg-surface text-muted hover:border-brass/40 hover:text-parchment"
@@ -447,7 +447,7 @@ function InterviewScreen({ role, questionNumber, numQuestions, question, questio
             </span>
           )}
         </div>
-        <p className="font-display text-xs leading-snug text-parchment">{question}</p>
+        <p className="font-display text-base sm:text-lg md:text-xl leading-snug text-parchment">{question}</p>
       </div>
 
       {lastFeedback && (
@@ -960,12 +960,12 @@ async function downloadPDF() {
       <div ref={reportRef} className="bg-ink space-y-8 p-2">
         <div className="text-center border-b border-brass/30 pb-6">
           <p className="font-mono text-xs tracking-widest text-muted uppercase mb-2">Assessment Complete</p>
-          <p className="font-display text-3xl text-parchment">
-            {report.overall_score}<span className="text-2xl text-muted">/100</span>
+          <p className="font-display text-4xl sm:text-5xl md:text-6xl text-parchment">
+            {report.overall_score}<span className="text-xl sm:text-2xl text-muted">/100</span>
           </p>
         </div>
 
-        <div className="grid grid-cols-2 grid-rows-2 gap-px text-xs bg-border border border-border text-parchment">
+        <div className="grid grid-cols-2 grid-rows-2 gap-px text-sm sm:text-base bg-border border border-border text-parchment">
           <Metric label="Technical Knowledge" value={report.technical_knowledge_pct} />
           <Metric label="Communication" value={report.communication_pct} />
           <Metric label="Completeness" value={report.completeness_pct} />
@@ -975,7 +975,7 @@ async function downloadPDF() {
         <div className="grid grid-cols-1 gap-6">
           <div>
             <p className="font-mono text-xs tracking-widest text-olive uppercase mb-2">Strengths</p>
-            <ul className="space-y-1.5 text-xs text-parchment/90">
+            <ul className="space-y-1.5 text-sm text-parchment/90">
               {report.strengths.map((s, i) => (
                 <li key={i} className="flex gap-2"><span className="text-olive">+</span>{s}</li>
               ))}
@@ -984,7 +984,7 @@ async function downloadPDF() {
 
           <div>
             <p className="font-mono text-xs tracking-widest text-rust uppercase mb-2">Weaknesses</p>
-            <ul className="space-y-1.5 text-xs text-parchment/90">
+            <ul className="space-y-1.5 text-sm text-parchment/90">
               {report.weaknesses.map((w, i) => (
                 <li key={i} className="flex gap-2"><span className="text-rust">−</span>{w}</li>
               ))}
@@ -993,7 +993,7 @@ async function downloadPDF() {
 
           <div>
             <p className="font-mono text-xs tracking-widest text-brass uppercase mb-2">Recommended Study Topics</p>
-            <ol className="space-y-1.5 text-xs text-parchment/90">
+            <ol className="space-y-1.5 text-sm text-parchment/90">
               {report.recommended_topics.map((t, i) => (
                 <li key={i} className="flex gap-3">
                   <span className="font-mono text-brass">{String(i + 1).padStart(2, "0")}</span>{t}
@@ -1056,14 +1056,14 @@ function HistoryScreen({ entries, onView, onClear, onBack }) {
 
       {entries.length >= 2 && (
         <div className="border border-border bg-surface p-4">
-          <p className="font-mono text-[21px] tracking-widest text-brass uppercase mb-3">Score Trend</p>
-          <ResponsiveContainer width="50%" height={300}>
-            <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
+          <p className="font-mono text-xs sm:text-sm tracking-widest text-brass uppercase mb-3">Score Trend</p>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#3A3327" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="label" stroke="#9C9284" tick={{ fontSize: 21 }} />
+              <XAxis dataKey="label" stroke="#9C9284" tick={{ fontSize: 11 }} />
               <YAxis domain={[0, 100]} stroke="#9C9284" tick={{ fontSize: 11 }} />
               <Tooltip
-                contentStyle={{ background: "#1E1A14", border: "1px solid #3A3327", fontSize: 15 }}
+                contentStyle={{ background: "#1E1A14", border: "1px solid #3A3327", fontSize: 12 }}
                 labelStyle={{ color: "#9C9284" }}
                 formatter={(value, _name, props) => [`${value}/100`, props.payload.role]}
               />
@@ -1087,10 +1087,10 @@ function HistoryScreen({ entries, onView, onClear, onBack }) {
                 className="w-full flex items-center justify-between px-4 py-3 border border-border bg-surface hover:border-brass/40 text-left transition-colors"
               >
                 <div>
-                  <p className="text-xs text-parchment">{entry.role}</p>
+                  <p className="text-sm text-parchment">{entry.role}</p>
                   <p className="font-mono text-xs text-muted">{entry.difficulty} · {dateLabel}</p>
                 </div>
-                <p className="font-display text-sm text-brass">{entry.report.overall_score}</p>
+                <p className="font-display text-lg sm:text-xl text-brass">{entry.report.overall_score}</p>
               </button>
             );
           })}
@@ -1111,9 +1111,9 @@ function HistoryScreen({ entries, onView, onClear, onBack }) {
 
 function Metric({ label, value }) {
   return (
-    <div className="bg-surface p-4">
-      <p className="font-mono text-[30px] tracking-widest text-muted uppercase mb-1">{label}</p>
-      <p className="font-display text-5xl text-parchment">{value}<span className="text-sm text-muted">%</span></p>
+    <div className="bg-surface p-3 sm:p-4">
+      <p className="font-mono text-[9px] sm:text-[10px] tracking-widest text-muted uppercase mb-1">{label}</p>
+      <p className="font-display text-2xl sm:text-3xl md:text-4xl text-parchment">{value}<span className="text-xs sm:text-sm text-muted">%</span></p>
     </div>
   );
 }
