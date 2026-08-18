@@ -66,7 +66,7 @@ ROLES = Literal[
     "DevOps Engineer", "QA Engineer", "Product Manager", "Business Analyst",
     "Project Manager", "System Administrator", "Network Engineer",
     "Database Administrator", "Mobile App Developer", "Cloud Solutions Architect",
-    "Data Engineer", "Embedded Systems Engineer", "Solutions Architect",
+    "Embedded Systems Engineer", "Solutions Architect",
     "Business Development Executive",
 ]
 DIFFICULTY = Literal["Easy", "Medium", "Hard"]

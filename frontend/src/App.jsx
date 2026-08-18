@@ -24,7 +24,7 @@ const ROLES = ["Software Engineer", "ML Engineer", "Data Analyst", "Data Scienti
     "DevOps Engineer", "QA Engineer", "Product Manager", "Business Analyst",
     "Project Manager", "System Administrator", "Network Engineer",
     "Database Administrator", "Mobile App Developer", "Cloud Solutions Architect",
-    "Data Engineer", "Embedded Systems Engineer", "Solutions Architect",
+    "Embedded Systems Engineer", "Solutions Architect",
     "Business Development Executive"];
 const DIFFICULTIES = ["Easy", "Medium", "Hard"];
 const QUESTION_COUNTS = [5, 10, 15];
@@ -320,10 +320,10 @@ function Letterhead() {
   return (
     <div className="mb-10">
       <div className="flex items-baseline justify-between">
-        <h1 className="font-display text-6xl tracking-tight text-parchment">
+        <h1 className="font-display text-3xl tracking-tight text-parchment">
           INTERV<span className="text-brass">AI</span>
         </h1>
-        <span className="font-mono text-[28px] tracking-[0.2em] text-muted uppercase">
+        <span className="font-mono text-[20px] tracking-[0.2em] text-muted uppercase">
           Candidate Assessment
         </span>
       </div>
@@ -346,13 +346,13 @@ function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, s
       </div>
 
       <div>
-        <p className="font-mono text-xl tracking-widest text-muted uppercase mb-3">Position applied for</p>
-        <div className="grid grid-cols-4 gap-5">
+        <p className="font-mono text-xs tracking-widest text-muted uppercase mb-3">Position applied for</p>
+        <div className="grid grid-cols-3 gap-2">
           {ROLES.map((r) => (
             <button
               key={r}
               onClick={() => setRole(r)}
-              className={`px-4 py-3 border text-left text-sm transition-colors ${
+              className={`px-4 py-3 border text-left text-xs transition-colors ${
                 role === r
                   ? "border-brass bg-brass/10 text-parchment"
                   : "border-border bg-surface text-muted hover:border-brass/40 hover:text-parchment"
@@ -365,13 +365,13 @@ function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, s
       </div>
 
       <div>
-        <p className="font-mono text-xl tracking-widest text-muted uppercase mb-3">Difficulty</p>
+        <p className="font-mono text-xs tracking-widest text-muted uppercase mb-3">Difficulty</p>
         <div className="flex gap-2">
           {DIFFICULTIES.map((d) => (
             <button
               key={d}
               onClick={() => setDifficulty(d)}
-              className={`px-4 py-2 border text-xl transition-colors ${
+              className={`px-4 py-2 border text-xs transition-colors ${
                 difficulty === d
                   ? "border-brass bg-brass/10 text-parchment"
                   : "border-border bg-surface text-muted hover:border-brass/40 hover:text-parchment"
@@ -384,7 +384,7 @@ function SetupScreen({ role, setRole, difficulty, setDifficulty, numQuestions, s
       </div>
 
       <div>
-        <p className="font-mono text-xl tracking-widest text-muted uppercase mb-3">Number of questions</p>
+        <p className="font-mono text-xs tracking-widest text-muted uppercase mb-3">Number of questions</p>
         <div className="flex gap-2">
           {QUESTION_COUNTS.map((n) => (
             <button
@@ -447,11 +447,11 @@ function InterviewScreen({ role, questionNumber, numQuestions, question, questio
             </span>
           )}
         </div>
-        <p className="font-display text-xl leading-snug text-parchment">{question}</p>
+        <p className="font-display text-xs leading-snug text-parchment">{question}</p>
       </div>
 
       {lastFeedback && (
-        <div className="border-l-2 border-brass/40 pl-4 py-1 text-sm text-muted">
+        <div className="border-l-2 border-brass/40 pl-4 py-1 text-xs text-muted">
           <span className="font-mono text-parchment">{lastFeedback.score}/10</span> — {lastFeedback.feedback}
         </div>
       )}
@@ -463,14 +463,14 @@ function InterviewScreen({ role, questionNumber, numQuestions, question, questio
         placeholder={questionRequiresCode ? "// Write your code here…" : "Compose your response…"}
         spellCheck={!questionRequiresCode}
         className={`w-full p-4 bg-surface border border-border text-parchment placeholder-muted/60 focus:outline-none focus:border-brass resize-none ${
-          questionRequiresCode ? "font-mono text-sm" : "font-body"
+          questionRequiresCode ? "font-mono text-xs" : "font-body"
         }`}
       />
 
       <button
         onClick={onSubmit}
         disabled={loading || !answer.trim()}
-        className="w-full py-3 border border-brass bg-brass/10 hover:bg-brass/20 disabled:opacity-40 text-parchment font-display text-lg tracking-wide transition-colors"
+        className="w-full py-3 border border-brass bg-brass/10 hover:bg-brass/20 disabled:opacity-40 text-parchment font-display text-sm tracking-wide transition-colors"
       >
         {loading ? "Evaluating…" : "Submit Answer"}
       </button>
@@ -483,11 +483,31 @@ function ReportScreen({ report, onRestart, restartLabel = "Take Another Intervie
   const [exporting, setExporting] = useState(false);
 
   async function captureCanvas() {
-    return html2canvas(reportRef.current, {
-      scale: 2,
-      backgroundColor: "#15130F",
-    });
+  const element = reportRef.current;
+
+  if (!element) {
+    throw new Error("Report element not found");
   }
+
+  return html2canvas(element, {
+    backgroundColor: "#15130F",
+
+    // Keep the output within safe browser dimensions
+    scale: 1,
+
+    // Important for full-page/scrollable content
+    width: element.scrollWidth,
+    height: element.scrollHeight,
+    windowWidth: element.scrollWidth,
+    windowHeight: element.scrollHeight,
+
+    // Make rendering independent of the current page scroll
+    scrollX: 0,
+    scrollY: 0,
+
+    logging: true,
+  });
+}
 
   async function downloadJPG() {
     setExporting(true);
@@ -528,12 +548,12 @@ function ReportScreen({ report, onRestart, restartLabel = "Take Another Intervie
       <div ref={reportRef} className="bg-ink space-y-8 p-2">
         <div className="text-center border-b border-brass/30 pb-6">
           <p className="font-mono text-xs tracking-widest text-muted uppercase mb-2">Assessment Complete</p>
-          <p className="font-display text-6xl text-parchment">
+          <p className="font-display text-3xl text-parchment">
             {report.overall_score}<span className="text-2xl text-muted">/100</span>
           </p>
         </div>
 
-        <div className="grid grid-cols-2 grid-rows-2 gap-px text-xl bg-border border border-border text-parchment">
+        <div className="grid grid-cols-2 grid-rows-2 gap-px text-xs bg-border border border-border text-parchment">
           <Metric label="Technical Knowledge" value={report.technical_knowledge_pct} />
           <Metric label="Communication" value={report.communication_pct} />
           <Metric label="Completeness" value={report.completeness_pct} />
@@ -542,8 +562,8 @@ function ReportScreen({ report, onRestart, restartLabel = "Take Another Intervie
 
         <div className="grid grid-cols-1 gap-6">
           <div>
-            <p className="font-mono text-xl tracking-widest text-olive uppercase mb-2">Strengths</p>
-            <ul className="space-y-1.5 text-xl text-parchment/90">
+            <p className="font-mono text-xs tracking-widest text-olive uppercase mb-2">Strengths</p>
+            <ul className="space-y-1.5 text-xs text-parchment/90">
               {report.strengths.map((s, i) => (
                 <li key={i} className="flex gap-2"><span className="text-olive">+</span>{s}</li>
               ))}
@@ -551,8 +571,8 @@ function ReportScreen({ report, onRestart, restartLabel = "Take Another Intervie
           </div>
 
           <div>
-            <p className="font-mono text-xl tracking-widest text-rust uppercase mb-2">Weaknesses</p>
-            <ul className="space-y-1.5 text-xl text-parchment/90">
+            <p className="font-mono text-xs tracking-widest text-rust uppercase mb-2">Weaknesses</p>
+            <ul className="space-y-1.5 text-xs text-parchment/90">
               {report.weaknesses.map((w, i) => (
                 <li key={i} className="flex gap-2"><span className="text-rust">−</span>{w}</li>
               ))}
@@ -560,8 +580,8 @@ function ReportScreen({ report, onRestart, restartLabel = "Take Another Intervie
           </div>
 
           <div>
-            <p className="font-mono text-xl tracking-widest text-brass uppercase mb-2">Recommended Study Topics</p>
-            <ol className="space-y-1.5 text-xl text-parchment/90">
+            <p className="font-mono text-xs tracking-widest text-brass uppercase mb-2">Recommended Study Topics</p>
+            <ol className="space-y-1.5 text-xs text-parchment/90">
               {report.recommended_topics.map((t, i) => (
                 <li key={i} className="flex gap-3">
                   <span className="font-mono text-brass">{String(i + 1).padStart(2, "0")}</span>{t}
@@ -624,14 +644,14 @@ function HistoryScreen({ entries, onView, onClear, onBack }) {
 
       {entries.length >= 2 && (
         <div className="border border-border bg-surface p-4">
-          <p className="font-mono text-[31px] tracking-widest text-brass uppercase mb-3">Score Trend</p>
-          <ResponsiveContainer width="100%" height={350}>
-            <LineChart data={chartData} margin={{ top: 10, right: 40, left: 0, bottom: 0 }}>
+          <p className="font-mono text-[21px] tracking-widest text-brass uppercase mb-3">Score Trend</p>
+          <ResponsiveContainer width="50%" height={300}>
+            <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
               <CartesianGrid stroke="#3A3327" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="label" stroke="#9C9284" tick={{ fontSize: 31 }} />
-              <YAxis domain={[0, 100]} stroke="#9C9284" tick={{ fontSize: 21 }} />
+              <XAxis dataKey="label" stroke="#9C9284" tick={{ fontSize: 21 }} />
+              <YAxis domain={[0, 100]} stroke="#9C9284" tick={{ fontSize: 11 }} />
               <Tooltip
-                contentStyle={{ background: "#1E1A14", border: "1px solid #3A3327", fontSize: 25 }}
+                contentStyle={{ background: "#1E1A14", border: "1px solid #3A3327", fontSize: 15 }}
                 labelStyle={{ color: "#9C9284" }}
                 formatter={(value, _name, props) => [`${value}/100`, props.payload.role]}
               />
@@ -655,10 +675,10 @@ function HistoryScreen({ entries, onView, onClear, onBack }) {
                 className="w-full flex items-center justify-between px-4 py-3 border border-border bg-surface hover:border-brass/40 text-left transition-colors"
               >
                 <div>
-                  <p className="text-sm text-parchment">{entry.role}</p>
+                  <p className="text-xs text-parchment">{entry.role}</p>
                   <p className="font-mono text-xs text-muted">{entry.difficulty} · {dateLabel}</p>
                 </div>
-                <p className="font-display text-2xl text-brass">{entry.report.overall_score}</p>
+                <p className="font-display text-sm text-brass">{entry.report.overall_score}</p>
               </button>
             );
           })}
