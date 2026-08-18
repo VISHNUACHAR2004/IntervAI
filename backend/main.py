@@ -49,11 +49,12 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # In dev, allow the Vite/CRA dev server. Lock this down before deploying.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000","https://intervaiyou.netlify.app/"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000","https://intervaiyou.netlify.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+print("DEBUG — CORS allow_origins:", ["http://localhost:5173", "http://localhost:3000", "https://intervaiyou.netlify.app"])
 
 # Free tier: get a key at https://aistudio.google.com/apikey (no credit card)
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
