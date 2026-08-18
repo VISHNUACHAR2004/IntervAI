@@ -524,24 +524,436 @@ function ReportScreen({ report, onRestart, restartLabel = "Take Another Intervie
     }
   }
 
-  async function downloadPDF() {
-    setExporting(true);
-    try {
-      const canvas = await captureCanvas();
-      const imgData = canvas.toDataURL("image/jpeg", 0.95);
-      const pdf = new jsPDF({
-        orientation: canvas.width > canvas.height ? "landscape" : "portrait",
-        unit: "px",
-        format: [canvas.width, canvas.height],
+async function downloadPDF() {
+  setExporting(true);
+
+  try {
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    });
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const margin = 18;
+    const contentWidth = pageWidth - margin * 2;
+
+    let y = 20;
+
+    // --------------------------------------------------
+    // COLOR PALETTE
+    // --------------------------------------------------
+
+    const NAVY = [31, 45, 61];
+    const GOLD = [170, 130, 55];
+    const GREEN = [54, 105, 75];
+    const RED = [145, 65, 65];
+    const DARK = [40, 40, 40];
+    const MUTED = [110, 110, 110];
+    const BORDER = [215, 215, 215];
+    const LIGHT_GOLD = [245, 240, 225];
+    const LIGHT_GREEN = [238, 246, 241];
+    const LIGHT_RED = [249, 240, 240];
+
+    // --------------------------------------------------
+    // HEADER
+    // --------------------------------------------------
+
+    pdf.setFont("times", "bold");
+    pdf.setFontSize(28);
+
+    pdf.setTextColor(...NAVY);
+    pdf.text("INTERV", margin, y);
+
+    pdf.setTextColor(...GOLD);
+    pdf.text(
+      "AI",
+      margin + pdf.getTextWidth("INTERV") + 1,
+      y
+    );
+
+    pdf.setFont("courier", "normal");
+    pdf.setFontSize(15);
+    pdf.setTextColor(...MUTED);
+
+    pdf.text(
+      "CANDIDATE ASSESSMENT",
+      pageWidth - margin,
+      y,
+      { align: "right" }
+    );
+
+    y += 6;
+
+    pdf.setDrawColor(...GOLD);
+    pdf.setLineWidth(0.7);
+    pdf.line(
+      margin,
+      y,
+      pageWidth - margin,
+      y
+    );
+
+    y += 14;
+
+    // --------------------------------------------------
+    // ASSESSMENT COMPLETE
+    // --------------------------------------------------
+
+    pdf.setFont("courier", "bold");
+    pdf.setFontSize(15);
+    pdf.setTextColor(...MUTED);
+
+    pdf.text(
+      "ASSESSMENT COMPLETE",
+      pageWidth / 2,
+      y,
+      { align: "center" }
+    );
+
+    y += 14;
+
+    // --------------------------------------------------
+    // OVERALL SCORE
+    // --------------------------------------------------
+
+    pdf.setFont("times", "bold");
+    pdf.setFontSize(44);
+    pdf.setTextColor(...NAVY);
+
+    pdf.text(
+      `${report.overall_score}`,
+      pageWidth / 2 - 3,
+      y,
+      { align: "right" }
+    );
+
+    pdf.setFont("times", "normal");
+    pdf.setFontSize(20);
+    pdf.setTextColor(...MUTED);
+
+    pdf.text(
+      "/100",
+      pageWidth / 2 + 3,
+      y
+    );
+
+    y += 16;
+
+    // --------------------------------------------------
+    // METRICS
+    // --------------------------------------------------
+
+    const metrics = [
+      [
+        "Technical Knowledge",
+        report.technical_knowledge_pct,
+      ],
+      [
+        "Communication",
+        report.communication_pct,
+      ],
+      [
+        "Completeness",
+        report.completeness_pct,
+      ],
+      [
+        "Problem Solving",
+        report.problem_solving_pct,
+      ],
+    ];
+
+    const boxWidth = contentWidth / 2;
+    const boxHeight = 27;
+
+    metrics.forEach(([label, value], index) => {
+      const col = index % 2;
+      const row = Math.floor(index / 2);
+
+      const x = margin + col * boxWidth;
+      const boxY = y + row * boxHeight;
+
+      // Box
+      pdf.setDrawColor(...BORDER);
+      pdf.setFillColor(250, 250, 248);
+      pdf.rect(
+        x,
+        boxY,
+        boxWidth,
+        boxHeight,
+        "FD"
+      );
+
+      // Label
+      pdf.setFont("courier", "normal");
+      pdf.setFontSize(15);
+      pdf.setTextColor(...MUTED);
+
+      pdf.text(
+        label.toUpperCase(),
+        x + 5,
+        boxY + 7
+      );
+
+      // Value
+      pdf.setFont("times", "bold");
+      pdf.setFontSize(20);
+      pdf.setTextColor(...GOLD);
+
+      pdf.text(
+        `${value}%`,
+        x + 5,
+        boxY + 20
+      );
+    });
+
+    y += boxHeight * 2 + 15;
+
+    // --------------------------------------------------
+    // SECTION HELPER
+    // --------------------------------------------------
+
+    function addSection(
+      title,
+      items,
+      color,
+      backgroundColor,
+      symbol
+    ) {
+      if (y > pageHeight - 55) {
+        pdf.addPage();
+        y = 20;
+      }
+
+      // Section heading
+      pdf.setFont("courier", "bold");
+      pdf.setFontSize(15);
+      pdf.setTextColor(...color);
+
+      pdf.text(
+        title.toUpperCase(),
+        margin,
+        y
+      );
+
+      y += 7;
+
+      items.forEach((item) => {
+        const lines = pdf.splitTextToSize(
+          item,
+          contentWidth - 16
+        );
+
+        const itemHeight =
+          lines.length * 5 + 6;
+
+        if (
+          y + itemHeight >
+          pageHeight - 20
+        ) {
+          pdf.addPage();
+          y = 20;
+        }
+
+        // Small colored marker
+        pdf.setFillColor(...backgroundColor);
+
+        pdf.roundedRect(
+          margin,
+          y - 4,
+          contentWidth,
+          itemHeight,
+          1.5,
+          1.5,
+          "F"
+        );
+
+        // Symbol
+        pdf.setFont("courier", "bold");
+        pdf.setFontSize(15);
+        pdf.setTextColor(...color);
+
+        pdf.text(
+          symbol,
+          margin + 4,
+          y + 1
+        );
+
+        // Text
+        pdf.setFont("times", "normal");
+        pdf.setFontSize(13);
+        pdf.setTextColor(...DARK);
+
+        pdf.text(
+          lines,
+          margin + 11,
+          y + 1
+        );
+
+        y += itemHeight + 3;
       });
-      pdf.addImage(imgData, "JPEG", 0, 0, canvas.width, canvas.height);
-      pdf.save("intervai-report.pdf");
-    } catch (e) {
-      console.error("PDF export failed:", e);
-    } finally {
-      setExporting(false);
+
+      y += 6;
     }
+
+    // --------------------------------------------------
+    // STRENGTHS
+    // --------------------------------------------------
+
+    addSection(
+      "Strengths",
+      report.strengths,
+      GREEN,
+      LIGHT_GREEN,
+      "+"
+    );
+
+    // --------------------------------------------------
+    // WEAKNESSES
+    // --------------------------------------------------
+
+    addSection(
+      "Weaknesses",
+      report.weaknesses,
+      RED,
+      LIGHT_RED,
+      "-"
+    );
+
+    // --------------------------------------------------
+    // RECOMMENDED STUDY TOPICS
+    // --------------------------------------------------
+
+    if (y > pageHeight - 60) {
+      pdf.addPage();
+      y = 20;
+    }
+
+    pdf.setFont("courier", "bold");
+    pdf.setFontSize(15);
+    pdf.setTextColor(...GOLD);
+
+    pdf.text(
+      "RECOMMENDED STUDY TOPICS",
+      margin,
+      y
+    );
+
+    y += 9;
+
+    report.recommended_topics.forEach(
+      (topic, index) => {
+        const number = String(
+          index + 1
+        ).padStart(2, "0");
+
+        const lines =
+          pdf.splitTextToSize(
+            topic,
+            contentWidth - 18
+          );
+
+        const itemHeight =
+          lines.length * 5 + 7;
+
+        if (
+          y + itemHeight >
+          pageHeight - 20
+        ) {
+          pdf.addPage();
+          y = 20;
+        }
+
+        // Number badge
+        pdf.setFillColor(...LIGHT_GOLD);
+
+        pdf.roundedRect(
+          margin,
+          y - 4,
+          10,
+          8,
+          1,
+          1,
+          "F"
+        );
+
+        pdf.setFont("courier", "bold");
+        pdf.setFontSize(13);
+        pdf.setTextColor(...GOLD);
+
+        pdf.text(
+          number,
+          margin + 5,
+          y + 1,
+          { align: "center" }
+        );
+
+        // Topic
+        pdf.setFont("times", "normal");
+        pdf.setFontSize(13);
+        pdf.setTextColor(...DARK);
+
+        pdf.text(
+          lines,
+          margin + 14,
+          y + 1
+        );
+
+        y += itemHeight + 2;
+      }
+    );
+
+    // --------------------------------------------------
+    // FOOTER
+    // --------------------------------------------------
+
+    const footerY =
+      pageHeight - 10;
+
+    pdf.setDrawColor(...BORDER);
+    pdf.setLineWidth(0.3);
+
+    pdf.line(
+      margin,
+      footerY - 4,
+      pageWidth - margin,
+      footerY - 4
+    );
+
+    pdf.setFont("courier", "normal");
+    pdf.setFontSize(6.5);
+    pdf.setTextColor(...MUTED);
+
+    pdf.text(
+      "INTERVAI · AI-POWERED INTERVIEW ASSESSMENT",
+      margin,
+      footerY
+    );
+
+    pdf.text(
+      "CONFIDENTIAL",
+      pageWidth - margin,
+      footerY,
+      { align: "right" }
+    );
+
+    // --------------------------------------------------
+    // SAVE
+    // --------------------------------------------------
+
+    pdf.save("intervai-report.pdf");
+
+  } catch (e) {
+    console.error(
+      "PDF export failed:",
+      e
+    );
+  } finally {
+    setExporting(false);
   }
+}
 
   return (
     <div className="space-y-8">
