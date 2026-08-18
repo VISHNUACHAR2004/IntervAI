@@ -23,7 +23,7 @@ React handles the interactive parts (the interview flow, timer, forms). Vite is 
 ### Styling — Tailwind CSS v4
 Used for all the visual design. The whole app follows one visual theme: a "formal interview room" look — dark background, brass/gold accents, serif headings — instead of a generic dashboard look.
 
-### AI Model — Google Gemini
+### AI Model — Google Gemini 3.1 Flash Lite
 See the dedicated section below — this needed its own explanation.
 
 ### Other libraries
@@ -37,7 +37,7 @@ See the dedicated section below — this needed its own explanation.
 
 ---
 
-## Why Gemini, and not another AI model
+## Why Gemini 3.1 Flash Lite, and not another AI model
 
 A few reasons this model was chosen over the alternatives:
 
@@ -155,7 +155,7 @@ Being upfront about what this app does *not* do yet:
 - **No real database.** The backend doesn't store anything — every request carries the full conversation history with it. This is fine for a short interview but wouldn't scale well to very long sessions.
 - **Free-tier AI usage limits.** The free Gemini plan allows a limited number of requests per day. Heavy use in a single day can hit that limit, and the app will show a clear message when this happens rather than failing silently.
 - **Rate limiting is basic.** It stops accidental overuse (like double-clicking a button) but wouldn't stop someone deliberately trying to abuse the app.
-- **Mobile layout hasn't been fully tested.** The app has mainly been built and checked on desktop browser sizes.
+- **Mobile layout is responsive.** All sizing scales down for small screens (phones/tablets) using breakpoint-based CSS, and the past-interviews chart, role grid, and header layout have been specifically adjusted to fit narrow screens rather than just shrinking desktop styling.
 - **The interviewer isn't perfect.** Like any AI, it can occasionally misjudge an answer or ask a slightly off-target follow-up question. It's a practice tool, not a certified assessment.
 
 ---
