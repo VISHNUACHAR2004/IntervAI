@@ -35,6 +35,9 @@ from slowapi.errors import RateLimitExceeded
 
 load_dotenv()
 print("DEBUG — GEMINI_MODEL from env:", os.environ.get("GEMINI_MODEL"))
+print("DEBUG — DATABASE_URL is set:", bool(os.environ.get("DATABASE_URL")))
+print("DEBUG — DATABASE_URL prefix:", os.environ.get("DATABASE_URL", "")[:20])
+print("DEBUG — JWT_SECRET is set:", bool(os.environ.get("JWT_SECRET")))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("intervai")
