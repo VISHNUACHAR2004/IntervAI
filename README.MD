@@ -15,7 +15,7 @@ INTERVAI tries to recreate that. The interviewer is an AI model that evaluates e
 ## Technologies used, and why
 
 ### Backend — FastAPI (Python)
-FastAPI was chosen because it's fast to build with, has built-in request validation (so bad data gets rejected automatically before it causes problems), and works well with Python's AI/ML libraries. The backend is intentionally simple: it has no database. It receives the interview history from the frontend on every request and forwards it to the AI model — nothing is stored on the server.
+FastAPI was chosen because it's fast to build with, has built-in request validation (so bad data gets rejected automatically before it causes problems), and works well with Python's AI/ML libraries. The core interview flow is intentionally simple and stateless — it has no database of its own for that part. It receives the interview history from the frontend on every request and forwards it to the AI model — nothing about an in-progress interview is stored on the server. Optional user accounts (see below) are the one part of the backend that does use a database.
 
 ### Frontend — React + Vite
 React handles the interactive parts (the interview flow, timer, forms). Vite is the build tool — it's fast during development and produces an optimized build for deployment.
@@ -26,6 +26,9 @@ Used for all the visual design. The whole app follows one visual theme: a "forma
 ### AI Model — Google Gemini 3.1 Flash Lite
 See the dedicated section below — this needed its own explanation.
 
+### Accounts & database — Neon (Postgres) + JWT
+User accounts are optional — the app works fully without ever creating one. When someone does register, their password is hashed (never stored as plain text) and a signed login token (JWT) is issued so the frontend can prove who's asking on future requests. The database itself is hosted on **Neon**, a free managed Postgres provider chosen specifically because its free tier doesn't expire or get deleted after a fixed number of days, unlike some competing free database offers.
+
 ### Other libraries
 | Library | What it's used for |
 |---|---|
@@ -34,6 +37,10 @@ See the dedicated section below — this needed its own explanation.
 | `recharts` | Draws the score-over-time chart on the History screen |
 | `jsPDF` | Builds the downloadable PDF report by drawing text and shapes directly — not a screenshot, which makes it reliable across different browsers and devices |
 | `html2canvas-pro` | Used for the JPG image export, by taking a screenshot of the report on screen |
+| `sqlmodel` | Defines the database tables (users, saved interviews) and talks to Postgres |
+| `psycopg2-binary` | The actual driver that lets Python connect to a Postgres database |
+| `bcrypt` | Hashes passwords before they're stored, so even a database leak wouldn't expose anyone's actual password |
+| `PyJWT` | Creates and checks the login tokens used to recognize a signed-in user on each request |
 
 ---
 
@@ -69,7 +76,11 @@ Create a file named `.env` inside the `backend` folder with this content:
 ```
 GEMINI_API_KEY=your_api_key_here
 GEMINI_MODEL=gemini-3.1-flash-lite
+DATABASE_URL=your_neon_connection_string
+JWT_SECRET=any_long_random_string
 ```
+
+`DATABASE_URL` and `JWT_SECRET` are optional. If you leave them out, the app runs exactly as before — the interview flow works fully, only the sign-in/account features are disabled (guest mode with local history keeps working either way).
 
 Then start the backend:
 
@@ -120,9 +131,15 @@ This repeats until the set number of questions is reached.
 Once all questions are answered, the backend sends the full transcript to the AI and asks for an overall score, a breakdown by category (technical knowledge, communication, completeness, problem solving), a list of strengths and weaknesses, and recommended topics to study.
 
 ### 6. Saving to history
-The finished report is automatically saved in the browser's local storage (not on any server) so the user can look back at past interviews later, without needing to log in.
+The finished report is automatically saved in the browser's local storage (not on any server) so the user can look back at past interviews later, without needing to log in. This happens every time, whether or not the user has an account.
 
-### 7. Downloading the report
+### 7. Optional accounts and cross-device sync
+Signing in is entirely optional. If a user chooses to register or log in:
+- Their password is hashed before being stored — the actual password is never saved anywhere.
+- Every interview they complete is *also* saved to the account's database record (in addition to the local browser save above), so it's visible from any device they log into.
+- Guest history taken before creating an account stays in that browser's local storage only — it isn't automatically pulled into the new account.
+
+### 8. Downloading the report
 The user can download the report as a PDF (built directly from the data, so it always looks correct) or as a JPG image (a screenshot of the report as shown on screen).
 
 ---
@@ -134,7 +151,9 @@ The app is deployed as two separate pieces:
 - **Backend** is deployed on **Render** as a Python web service.
   - Build command: `pip install -r requirements.txt`
   - Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-  - The `GEMINI_API_KEY` and `GEMINI_MODEL` values are set directly in Render's Environment settings — they are never committed to the code.
+  - The `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATABASE_URL`, and `JWT_SECRET` values are all set directly in Render's Environment settings — they are never committed to the code.
+
+- **Database** is hosted on **Neon** (managed Postgres, free tier). Render was deliberately *not* used for the database — its free Postgres tier auto-deletes after 30 days, which makes it unsuitable for anything meant to hold real user data long-term.
 
 - **Frontend** is deployed on **Netlify**.
   - Base directory: `frontend`
@@ -151,8 +170,9 @@ The app is deployed as two separate pieces:
 
 Being upfront about what this app does *not* do yet:
 
-- **No user accounts.** History is saved only in the browser's local storage on one device. Clearing browser data deletes it, and it won't show up on a different device or browser.
-- **No real database.** The backend doesn't store anything — every request carries the full conversation history with it. This is fine for a short interview but wouldn't scale well to very long sessions.
+- **Guest and account history don't merge.** If someone uses the app as a guest and later creates an account, their earlier guest-mode interviews stay in that browser's local storage only — they don't automatically appear in the new account.
+- **No password reset flow yet.** If someone forgets their password, there's currently no "forgot password" email/reset process — they'd need a new account.
+- **No database migrations tooling.** The database tables are created automatically on first startup, but if the table structure needs to change later, there's no proper migration system (like Alembic) in place yet — just a fresh-create approach that works for now but isn't how a long-lived production app should evolve its schema.
 - **Free-tier AI usage limits.** The free Gemini plan allows a limited number of requests per day. Heavy use in a single day can hit that limit, and the app will show a clear message when this happens rather than failing silently.
 - **Rate limiting is basic.** It stops accidental overuse (like double-clicking a button) but wouldn't stop someone deliberately trying to abuse the app.
 - **Mobile layout is responsive.** All sizing scales down for small screens (phones/tablets) using breakpoint-based CSS, and the past-interviews chart, role grid, and header layout have been specifically adjusted to fit narrow screens rather than just shrinking desktop styling.
@@ -164,9 +184,11 @@ Being upfront about what this app does *not* do yet:
 
 Ideas for what could reasonably be added next:
 
-- **User accounts and a real database**, so interview history is available across devices, not just one browser.
+- **Merge guest history into an account** automatically when someone registers, instead of leaving pre-account interviews stranded in local storage.
+- **Password reset via email.**
+- **Proper database migrations** (e.g. Alembic) once the data model needs to change in production without losing existing data.
 - **Voice-based answers**, using speech-to-text, so the interview feels closer to a real spoken conversation.
 - **Multiple AI model support**, letting the app fall back to a different provider automatically if one is unavailable or rate-limited.
 - **Deeper code evaluation**, such as actually running submitted code against test cases instead of only having the AI read it.
-- **An admin/analytics view**, useful if this were ever opened up to multiple users, showing common weak areas across many interviews.
-- **Stronger abuse protection**, such as login-based rate limits instead of just per-IP limits, if the app is ever opened to the public at scale.
+- **An admin/analytics view**, useful now that there's a real user base to draw from, showing common weak areas across many interviews.
+- **Stronger abuse protection**, such as per-account rate limits in addition to the current per-IP limits, if the app is ever opened to the public at scale.
