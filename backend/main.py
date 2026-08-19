@@ -17,12 +17,16 @@ import os
 import json
 import time
 import logging
+import bcrypt
+import jwt
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Literal
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, EmailStr
+from sqlmodel import SQLModel, Field as SQLField, Session, create_engine, select
 from google import genai
 from google.genai.errors import ServerError, ClientError
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -56,6 +60,94 @@ app.add_middleware(
 )
 print("DEBUG — CORS allow_origins:", ["http://localhost:5173", "http://localhost:3000", "https://intervaiyou.netlify.app"])
 
+# ---------- Database & Auth setup ----------
+# Optional account system layered ON TOP of the existing guest/stateless
+# flow. If you don't set DATABASE_URL, the app still runs exactly as
+# before — /start-interview, /evaluate, /final-report need no login.
+# Login only unlocks the NEW /interviews endpoints (cross-device history).
+
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+# Neon/most providers give a "postgres://" URL; SQLAlchemy wants "postgresql://"
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+JWT_SECRET = os.environ.get("JWT_SECRET", "")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_DAYS = 30
+
+db_enabled = bool(DATABASE_URL and JWT_SECRET)
+if not db_enabled:
+    logger.warning(
+        "DATABASE_URL or JWT_SECRET not set — accounts/history-sync are "
+        "disabled. Guest mode (localStorage-only) still works fully."
+    )
+
+engine = create_engine(DATABASE_URL, echo=False) if db_enabled else None
+
+
+class User(SQLModel, table=True):
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    email: str = SQLField(unique=True, index=True)
+    hashed_password: str
+    created_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InterviewRecord(SQLModel, table=True):
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    user_id: int = SQLField(index=True)
+    role: str
+    difficulty: str
+    date: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
+    report_json: str  # the FinalReport, stored as a JSON string — simplest
+                       # option here; no need for a separate normalized
+                       # table just to hold one report per interview
+
+
+def get_session():
+    with Session(engine) as session:
+        yield session
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+
+
+def create_token(user_id: int) -> str:
+    payload = {
+        "sub": str(user_id),
+        "exp": datetime.now(timezone.utc) + timedelta(days=JWT_EXPIRE_DAYS),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def get_current_user(
+    authorization: Optional[str] = Header(default=None),
+    session: Session = Depends(get_session),
+) -> User:
+    """FastAPI dependency: extracts and validates the Bearer token, returns
+    the matching User row, or raises 401. Any route that takes
+    `user: User = Depends(get_current_user)` requires a logged-in caller."""
+    if not db_enabled:
+        raise HTTPException(status_code=503, detail="Accounts are not configured on this server.")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    token = authorization.removeprefix("Bearer ").strip()
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Session expired, please log in again.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid session.")
+    user = session.get(User, int(payload["sub"]))
+    if not user:
+        raise HTTPException(status_code=401, detail="User no longer exists.")
+    return user
+
+
 # Free tier: get a key at https://aistudio.google.com/apikey (no credit card)
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
@@ -70,6 +162,45 @@ ROLES = Literal[
     "Business Development Executive",
 ]
 DIFFICULTY = Literal["Easy", "Medium", "Hard"]
+
+
+@app.on_event("startup")
+def on_startup():
+    if db_enabled:
+        SQLModel.metadata.create_all(engine)
+        logger.info("Database tables ready.")
+
+
+# ---------- Auth & history schemas ----------
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    email: str
+
+
+class SaveInterviewRequest(BaseModel):
+    role: str
+    difficulty: str
+    report: dict  # the FinalReport shape, sent as-is from the frontend
+
+
+class SavedInterview(BaseModel):
+    id: int
+    role: str
+    difficulty: str
+    date: str
+    report: dict
 
 
 # ---------- Schemas ----------
@@ -353,6 +484,77 @@ def final_report(request: Request, req: FinalReportRequest):
         return FinalReport(**data)
     except ValidationError as e:
         raise HTTPException(status_code=502, detail=f"Malformed LLM report: {e}")
+
+
+@app.post("/auth/register", response_model=TokenResponse)
+@limiter.limit("5/minute")
+def register(request: Request, req: RegisterRequest, session: Session = Depends(get_session)):
+    if not db_enabled:
+        raise HTTPException(status_code=503, detail="Accounts are not configured on this server.")
+    existing = session.exec(select(User).where(User.email == req.email)).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="An account with this email already exists.")
+    user = User(email=req.email, hashed_password=hash_password(req.password))
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return TokenResponse(access_token=create_token(user.id), email=user.email)
+
+
+@app.post("/auth/login", response_model=TokenResponse)
+@limiter.limit("10/minute")
+def login(request: Request, req: LoginRequest, session: Session = Depends(get_session)):
+    if not db_enabled:
+        raise HTTPException(status_code=503, detail="Accounts are not configured on this server.")
+    user = session.exec(select(User).where(User.email == req.email)).first()
+    if not user or not verify_password(req.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+    return TokenResponse(access_token=create_token(user.id), email=user.email)
+
+
+@app.get("/auth/me")
+def auth_me(user: User = Depends(get_current_user)):
+    return {"email": user.email}
+
+
+@app.post("/interviews", response_model=SavedInterview)
+def save_interview(
+    req: SaveInterviewRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    record = InterviewRecord(
+        user_id=user.id,
+        role=req.role,
+        difficulty=req.difficulty,
+        report_json=json.dumps(req.report),
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return SavedInterview(
+        id=record.id,
+        role=record.role,
+        difficulty=record.difficulty,
+        date=record.date.isoformat(),
+        report=req.report,
+    )
+
+
+@app.get("/interviews", response_model=List[SavedInterview])
+def list_interviews(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    records = session.exec(
+        select(InterviewRecord)
+        .where(InterviewRecord.user_id == user.id)
+        .order_by(InterviewRecord.date.desc())
+    ).all()
+    return [
+        SavedInterview(
+            id=r.id, role=r.role, difficulty=r.difficulty,
+            date=r.date.isoformat(), report=json.loads(r.report_json),
+        )
+        for r in records
+    ]
 
 
 @app.get("/health")

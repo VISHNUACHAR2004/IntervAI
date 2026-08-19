@@ -62,7 +62,15 @@ function clearHistory() {
   }
 }
 
+const AUTH_TOKEN_KEY = "intervai_auth_token";
+
 export default function App() {
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || null);
+  const [userEmail, setUserEmail] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false); // avoids flashing "logged out" UI while a stored token is still being verified
+  const [authError, setAuthError] = useState(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
   const [screen, setScreen] = useState("setup");
   const [role, setRole] = useState(ROLES[0]);
   const [difficulty, setDifficulty] = useState("Medium");
@@ -84,6 +92,75 @@ export default function App() {
   const [viewedHistoryReport, setViewedHistoryReport] = useState(null);
 
   const questionNumber = history.length + 1;
+
+  // On first load, if a token is already stored, confirm it's still valid
+  // and fetch the email it belongs to — don't just trust it blindly.
+  useEffect(() => {
+    if (!authToken) {
+      setAuthChecked(true);
+      return;
+    }
+    fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${authToken}` } })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data) => setUserEmail(data.email))
+      .catch(() => {
+        // stored token is expired/invalid — clear it rather than keep a broken "logged in" state
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        setAuthToken(null);
+      })
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  async function register(email, password) {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Registration failed");
+      localStorage.setItem(AUTH_TOKEN_KEY, data.access_token);
+      setAuthToken(data.access_token);
+      setUserEmail(data.email);
+      setScreen("setup");
+    } catch (e) {
+      setAuthError(e.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function login(email, password) {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Login failed");
+      localStorage.setItem(AUTH_TOKEN_KEY, data.access_token);
+      setAuthToken(data.access_token);
+      setUserEmail(data.email);
+      setScreen("setup");
+    } catch (e) {
+      setAuthError(e.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    setAuthToken(null);
+    setUserEmail(null);
+    setScreen("setup");
+  }
 
   // Reset the timer whenever a new question appears, scaled to difficulty
   // plus a bonus if THIS SPECIFIC QUESTION requires code. Note: questionRequiresCode
@@ -221,6 +298,20 @@ export default function App() {
         date: new Date().toISOString(),
         report: data,
       });
+      // Additionally sync to the account if logged in — this NEVER replaces
+      // the local save above, it's purely additive, so guest continuity is
+      // unaffected whether this succeeds, fails, or is skipped entirely.
+      if (authToken) {
+        try {
+          await fetch(`${API_BASE}/interviews`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+            body: JSON.stringify({ role, difficulty, report: data }),
+          });
+        } catch (e) {
+          console.error("Failed to sync interview to account (local copy is still saved):", e);
+        }
+      }
       setScreen("report");
     } catch (e) {
       setError(e.message);
@@ -237,10 +328,27 @@ export default function App() {
     setError(null);
   }
 
-  function openHistory() {
-    setHistoryList(loadHistoryList());
+  async function openHistory() {
     setViewedHistoryReport(null);
     setScreen("history");
+    if (authToken) {
+      // Logged in: history comes from the account (cross-device), not
+      // localStorage. Guest history taken before logging in stays in
+      // localStorage but isn't merged in automatically — see README limitations.
+      try {
+        const res = await fetch(`${API_BASE}/interviews`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setHistoryList(data.map((d) => ({ id: d.id, role: d.role, difficulty: d.difficulty, date: d.date, report: d.report })));
+          return;
+        }
+      } catch (e) {
+        console.error("Failed to fetch account history, falling back to local:", e);
+      }
+    }
+    setHistoryList(loadHistoryList());
   }
 
   function viewHistoryEntry(entry) {
@@ -256,12 +364,27 @@ export default function App() {
   return (
     <div className="min-h-screen bg-ink text-parchment font-body flex items-start justify-center p-4 sm:p-6">
       <div className="w-full max-w-2xl">
-        <Letterhead />
+        <Letterhead
+          authChecked={authChecked}
+          userEmail={userEmail}
+          onLogout={logout}
+          onGoToAuth={() => setScreen("auth")}
+        />
 
         {error && (
           <div className="mb-6 px-4 py-3 border border-rust/40 bg-rust/10 text-rust text-sm font-mono">
             {error}
           </div>
+        )}
+
+        {screen === "auth" && (
+          <AuthScreen
+            onLogin={login}
+            onRegister={register}
+            loading={authLoading}
+            error={authError}
+            onBack={() => { setAuthError(null); setScreen("setup"); }}
+          />
         )}
 
         {screen === "setup" && (
@@ -316,19 +439,121 @@ export default function App() {
   );
 }
 
-function Letterhead() {
+function Letterhead({ authChecked, userEmail, onLogout, onGoToAuth }) {
   return (
     <div className="mb-8 sm:mb-10">
       <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 sm:gap-0">
         <h1 className="font-display text-2xl sm:text-3xl md:text-4xl tracking-tight text-parchment">
           INTERV<span className="text-brass">AI</span>
         </h1>
-        <span className="font-mono text-[10px] sm:text-xs tracking-[0.2em] text-muted uppercase">
-          Candidate Assessment
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[10px] sm:text-xs tracking-[0.2em] text-muted uppercase">
+            Candidate Assessment
+          </span>
+          {authChecked && (
+            userEmail ? (
+              <button
+                onClick={onLogout}
+                className="font-mono text-[10px] sm:text-xs tracking-widest text-brass hover:text-brass-bright uppercase transition-colors"
+                title={userEmail}
+              >
+                Sign Out
+              </button>
+            ) : (
+              <button
+                onClick={onGoToAuth}
+                className="font-mono text-[10px] sm:text-xs tracking-widest text-brass hover:text-brass-bright uppercase transition-colors"
+              >
+                Sign In
+              </button>
+            )
+          )}
+        </div>
       </div>
       <div className="mt-3 h-px bg-brass/50" />
       <div className="mt-1 h-px bg-brass/50" />
+    </div>
+  );
+}
+
+function AuthScreen({ onLogin, onRegister, loading, error, onBack }) {
+  const [mode, setMode] = useState("login"); // "login" | "register"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!email.trim() || !password.trim()) return;
+    if (mode === "login") onLogin(email.trim(), password);
+    else onRegister(email.trim(), password);
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <p className="font-mono text-xs tracking-widest text-muted uppercase">
+          {mode === "login" ? "Sign In" : "Create Account"}
+        </p>
+        <button
+          onClick={onBack}
+          className="font-mono text-xs tracking-widest text-muted hover:text-brass uppercase transition-colors"
+        >
+          ← Back
+        </button>
+      </div>
+
+      <p className="text-sm text-muted">
+        {mode === "login"
+          ? "Sign in to sync your interview history across devices."
+          : "Create an account to save your interview history across devices. This is optional — you can keep using INTERVAI without one."}
+      </p>
+
+      {error && (
+        <div className="px-4 py-3 border border-rust/40 bg-rust/10 text-rust text-sm font-mono">
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <p className="font-mono text-xs tracking-widest text-muted uppercase mb-2">Email</p>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="w-full p-3 bg-surface border border-border text-parchment placeholder-muted/60 focus:outline-none focus:border-brass"
+            placeholder="you@example.com"
+          />
+        </div>
+        <div>
+          <p className="font-mono text-xs tracking-widest text-muted uppercase mb-2">Password</p>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={mode === "register" ? 8 : undefined}
+            className="w-full p-3 bg-surface border border-border text-parchment placeholder-muted/60 focus:outline-none focus:border-brass"
+            placeholder={mode === "register" ? "At least 8 characters" : "Your password"}
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full py-3 border border-brass bg-brass/10 hover:bg-brass/20 disabled:opacity-40 text-parchment font-display text-lg tracking-wide transition-colors"
+        >
+          {loading ? "Working…" : mode === "login" ? "Sign In" : "Create Account"}
+        </button>
+      </form>
+
+      <button
+        onClick={() => setMode(mode === "login" ? "register" : "login")}
+        className="w-full text-center font-mono text-xs text-muted hover:text-brass uppercase tracking-widest transition-colors"
+      >
+        {mode === "login" ? "Need an account? Register" : "Already have an account? Sign in"}
+      </button>
     </div>
   );
 }
